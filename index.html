@@ -1,0 +1,982 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1f5f3a">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="In bici">
+<title>Diario in bici</title>
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="icon" href="icon-192.png">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<style>
+:root{
+  --bg:#f4f2ec; --card:#ffffff; --ink:#1d2421; --muted:#6b736f; --line:#e3e0d8;
+  --accent:#1f5f3a; --accent2:#2f8a55; --warn:#c77b12; --danger:#b3362b; --blue:#2b5fa8;
+  --sat:env(safe-area-inset-top,0px); --sab:env(safe-area-inset-bottom,0px);
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;overscroll-behavior:none}
+button{font:inherit;color:inherit;border:0;background:none;cursor:pointer}
+.num{font-variant-numeric:tabular-nums}
+#app{position:fixed;inset:0;display:flex;flex-direction:column;padding-top:var(--sat)}
+.view{flex:1;min-height:0;display:none;flex-direction:column}
+.view.on{display:flex}
+.scroll{overflow-y:auto;-webkit-overflow-scrolling:touch;flex:1;min-height:0}
+
+/* tab bar */
+#tabs{display:flex;background:var(--card);border-top:1px solid var(--line);padding-bottom:var(--sab)}
+#tabs button{flex:1;padding:8px 0 9px;display:flex;flex-direction:column;align-items:center;gap:2px;font-size:11px;color:var(--muted)}
+#tabs button svg{width:24px;height:24px}
+#tabs button.on{color:var(--accent);font-weight:600}
+
+/* record view */
+#recMapWrap{position:relative;flex:1;min-height:150px}
+#recMap,#detMap{position:absolute;inset:0;background:#dfe6dc}
+.mapbtn{position:absolute;z-index:500;background:#fff;border-radius:10px;box-shadow:0 1px 5px rgba(0,0,0,.25);
+  height:40px;min-width:40px;padding:0 10px;display:flex;align-items:center;justify-content:center;gap:6px;font-size:13px;font-weight:600}
+.mapbtn svg{width:20px;height:20px}
+#btnCenter{right:10px;bottom:12px}
+#btnCenter.off{color:var(--blue)}
+#gpsPill{position:absolute;z-index:500;left:10px;top:10px;background:#fff;border-radius:20px;padding:6px 11px;font-size:12px;font-weight:600;
+  box-shadow:0 1px 5px rgba(0,0,0,.2);display:flex;align-items:center;gap:6px}
+#gpsPill i{width:9px;height:9px;border-radius:50%;background:#aaa;display:inline-block}
+#gpsPill.good i{background:#2e9d57} #gpsPill.mid i{background:#e0a31b} #gpsPill.bad i{background:#c9412f}
+#recState{position:absolute;z-index:500;left:50%;transform:translateX(-50%);top:10px;background:var(--danger);color:#fff;border-radius:20px;
+  padding:6px 12px;font-size:12px;font-weight:700;display:none;letter-spacing:.03em}
+#recState.rec{display:block;animation:blink 2s infinite}
+#recState.paused{display:block;background:var(--warn);animation:none}
+@keyframes blink{50%{opacity:.6}}
+
+#panel{background:var(--card);border-radius:18px 18px 0 0;margin-top:-14px;position:relative;z-index:600;
+  box-shadow:0 -3px 12px rgba(0,0,0,.08);padding:12px 14px 10px}
+#speedRow{display:flex;align-items:baseline;justify-content:center;gap:6px}
+#spd{font-size:64px;font-weight:700;line-height:1;letter-spacing:-.02em}
+#speedRow small{font-size:16px;color:var(--muted);font-weight:600}
+.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:8px 6px;margin:10px 0 12px}
+.stat{text-align:center}
+.stat b{display:block;font-size:22px;font-weight:700}
+.stat span{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+.stat em{display:block;font-style:normal;font-size:11px;color:var(--muted)}
+#controls{display:flex;gap:8px;align-items:stretch}
+.cbtn{flex:1;border-radius:14px;padding:10px 4px;background:#eef0ec;display:flex;flex-direction:column;align-items:center;gap:3px;font-size:12px;font-weight:600}
+.cbtn svg{width:24px;height:24px}
+.cbtn.big{flex:2;background:var(--accent);color:#fff;font-size:15px}
+.cbtn.big.resume{background:var(--accent2)}
+.cbtn.big.pause{background:var(--warn)}
+.cbtn.stop{color:var(--danger)}
+.cbtn:active{transform:scale(.97)}
+#startBtn{width:100%;background:var(--accent);color:#fff;border-radius:16px;padding:16px;font-size:19px;font-weight:700;display:flex;align-items:center;justify-content:center;gap:10px}
+#startBtn svg{width:26px;height:26px}
+#hint{font-size:12px;color:var(--muted);text-align:center;margin-top:8px}
+
+/* markers */
+.ph-pin{width:42px;height:42px;border-radius:9px;border:3px solid #fff;box-shadow:0 1px 6px rgba(0,0,0,.4);overflow:hidden;background:#ccc}
+.ph-pin img{width:100%;height:100%;object-fit:cover;display:block}
+.note-pin{width:30px;height:30px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);background:var(--blue);border:3px solid #fff;box-shadow:0 1px 5px rgba(0,0,0,.4)}
+.end-pin{width:16px;height:16px;border-radius:50%;border:3px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4)}
+.me-dot{width:20px;height:20px;border-radius:50%;background:#2b6fd6;border:3px solid #fff;box-shadow:0 0 0 2px rgba(43,111,214,.3),0 1px 5px rgba(0,0,0,.35)}
+
+/* pages */
+.head{padding:14px 16px 6px;display:flex;align-items:center;gap:10px}
+.head h1{font-size:24px;margin:0;flex:1}
+.head .back{display:flex;align-items:center;font-size:15px;color:var(--accent);font-weight:600;padding:4px 0}
+.head .back svg{width:22px;height:22px}
+.card{background:var(--card);border-radius:16px;margin:8px 12px;padding:14px}
+.totals{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.totals div b{display:block;font-size:24px}
+.totals div span{font-size:12px;color:var(--muted)}
+.ride{display:flex;gap:12px;align-items:center;background:var(--card);border-radius:16px;margin:8px 12px;padding:10px 12px;width:calc(100% - 24px);text-align:left}
+.ride svg.mini{width:64px;height:52px;flex:none;background:#eef2ea;border-radius:10px}
+.ride .t{flex:1;min-width:0}
+.ride .t b{display:block;font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ride .t span{font-size:12px;color:var(--muted)}
+.ride .t .row{font-size:13px;margin-top:3px}
+.ride .ph{font-size:11px;color:var(--muted);flex:none}
+.empty{text-align:center;color:var(--muted);padding:40px 24px;line-height:1.5}
+h2{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:18px 16px 2px}
+
+/* detail */
+#detMapWrap{position:relative;height:42vh;min-height:220px;margin:0 12px;border-radius:16px;overflow:hidden}
+.grid2{display:grid;grid-template-columns:repeat(3,1fr);gap:12px 6px}
+.grid2 .stat b{font-size:19px}
+.chartBox{position:relative}
+.chartBox canvas{width:100%;height:120px;display:block;touch-action:none}
+.chartBox .cur{position:absolute;top:8px;bottom:18px;width:1px;background:var(--ink);display:none;pointer-events:none}
+.chartLbl{font-size:12px;color:var(--muted);margin:2px 0 4px;display:flex;justify-content:space-between}
+#chartRead{font-size:13px;font-weight:600;min-height:18px;text-align:center;color:var(--ink)}
+.legend{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted);margin-top:6px}
+.legend i{flex:1;height:6px;border-radius:3px;background:linear-gradient(90deg,#2b6fd6,#2e9d57,#e0a31b,#c9412f)}
+.gallery{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+.gallery button{aspect-ratio:1;border-radius:10px;overflow:hidden;background:#ddd;padding:0}
+.gallery img{width:100%;height:100%;object-fit:cover;display:block}
+.splits{width:100%;border-collapse:collapse;font-size:14px}
+.splits td{padding:6px 2px;border-bottom:1px solid var(--line)}
+.splits td:last-child{text-align:right}
+.splits .bar{height:6px;border-radius:3px;background:var(--accent2)}
+.noteItem{padding:8px 0;border-bottom:1px solid var(--line);font-size:14px;line-height:1.4}
+.noteItem small{display:block;color:var(--muted);font-size:11px}
+textarea,input[type=text],select{width:100%;font:inherit;font-size:16px;border:1px solid var(--line);border-radius:10px;padding:10px;background:#fbfaf7;color:var(--ink)}
+textarea{min-height:90px;resize:vertical}
+.actions{display:flex;flex-wrap:wrap;gap:8px}
+.btn{border-radius:12px;padding:11px 14px;background:#eef0ec;font-weight:600;font-size:14px}
+.btn.pri{background:var(--accent);color:#fff}
+.btn.danger{color:var(--danger)}
+.btn.wide{flex:1}
+
+/* settings */
+.set{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 0;border-bottom:1px solid var(--line)}
+.set:last-child{border-bottom:0}
+.set label{flex:1;font-size:15px}
+.set label small{display:block;color:var(--muted);font-size:12px;margin-top:2px}
+.set select{width:auto;max-width:52%;font-size:14px;padding:7px}
+.sw{position:relative;width:50px;height:30px;flex:none}
+.sw input{opacity:0;width:0;height:0}
+.sw span{position:absolute;inset:0;background:#cfd3cc;border-radius:30px;transition:.2s}
+.sw span:before{content:"";position:absolute;width:24px;height:24px;left:3px;top:3px;background:#fff;border-radius:50%;transition:.2s;box-shadow:0 1px 3px rgba(0,0,0,.3)}
+.sw input:checked+span{background:var(--accent2)}
+.sw input:checked+span:before{transform:translateX(20px)}
+.info{font-size:13px;color:var(--muted);line-height:1.5}
+
+/* modal, toast, lightbox */
+#modal{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:2000;display:none;align-items:flex-end;justify-content:center}
+#modal.on{display:flex}
+#modal .box{background:var(--card);width:100%;max-width:520px;border-radius:20px 20px 0 0;padding:18px 16px calc(16px + var(--sab))}
+#modal h3{margin:0 0 10px;font-size:18px}
+#modal .body{font-size:15px;line-height:1.45;margin-bottom:14px}
+#modal .body label{display:block;font-size:13px;color:var(--muted);margin:10px 0 4px}
+#modal .mbtns{display:flex;flex-direction:column;gap:8px}
+#modal .mbtns .btn{padding:14px;font-size:16px}
+#toast{position:fixed;left:50%;top:calc(58px + var(--sat));transform:translateX(-50%) translateY(-12px);background:#222;color:#fff;
+  padding:10px 16px;border-radius:12px;font-size:14px;z-index:3000;opacity:0;transition:.25s;pointer-events:none;max-width:88%;text-align:center}
+#toast.on{opacity:1;transform:translateX(-50%) translateY(0)}
+#lightbox{position:fixed;inset:0;background:#000;z-index:2500;display:none;flex-direction:column;padding-top:var(--sat)}
+#lightbox.on{display:flex}
+#lightbox .img{flex:1;min-height:0;display:flex;align-items:center;justify-content:center}
+#lightbox img{max-width:100%;max-height:100%;object-fit:contain}
+#lightbox .bar{display:flex;gap:8px;padding:10px 12px calc(12px + var(--sab));color:#fff;align-items:center}
+#lightbox .bar p{flex:1;margin:0;font-size:14px}
+#lightbox .bar .btn{background:#333;color:#fff}
+#banner{display:none;background:#fff3d6;color:#6b4a00;font-size:13px;padding:9px 14px;line-height:1.4}
+#banner.on{display:block}
+.hidden{display:none!important}
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="banner"></div>
+
+  <!-- REGISTRA -->
+  <section class="view on" id="v-rec">
+    <div id="recMapWrap">
+      <div id="recMap"></div>
+      <div id="gpsPill"><i></i><span>GPS spento</span></div>
+      <div id="recState">● REC</div>
+      <button class="mapbtn" id="btnCenter" title="Centra sulla posizione">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>
+      </button>
+    </div>
+    <div id="panel">
+      <div id="speedRow"><span id="spd" class="num">0,0</span><small>km/h</small></div>
+      <div class="grid3">
+        <div class="stat"><b class="num" id="sDist">0,00</b><span>km</span></div>
+        <div class="stat"><b class="num" id="sTime">0:00</b><span>tempo</span><em class="num" id="sMov">in mov. 0:00</em></div>
+        <div class="stat"><b class="num" id="sAvg">0,0</b><span>media km/h</span></div>
+        <div class="stat"><b class="num" id="sMax">0,0</b><span>max km/h</span></div>
+        <div class="stat"><b class="num" id="sGain">0</b><span>salita m</span></div>
+        <div class="stat"><b class="num" id="sAlt">–</b><span>quota m</span></div>
+      </div>
+      <div id="idleCtl">
+        <button id="startBtn"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>Inizia l'uscita</button>
+        <div id="hint">Tieni lo schermo acceso durante la registrazione.</div>
+      </div>
+      <div id="controls" class="hidden">
+        <button class="cbtn" id="bPhoto"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>Foto</button>
+        <button class="cbtn" id="bNote"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21s-7-6.2-7-11.5A7 7 0 0 1 19 9.5C19 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/></svg>Nota</button>
+        <button class="cbtn big pause" id="bPause"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg><span>Pausa</span></button>
+        <button class="cbtn stop" id="bStop"><svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>Fine</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- STORICO -->
+  <section class="view" id="v-list">
+    <div class="head"><h1>Le mie uscite</h1></div>
+    <div class="scroll" id="listScroll"></div>
+  </section>
+
+  <!-- DETTAGLIO -->
+  <section class="view" id="v-det">
+    <div class="head">
+      <button class="back" id="detBack"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M15 5l-7 7 7 7"/></svg>Uscite</button>
+    </div>
+    <div class="scroll" id="detScroll">
+      <div style="padding:0 16px 8px"><h1 id="detName" style="margin:0;font-size:22px"></h1><div id="detSub" class="info"></div></div>
+      <div id="detMapWrap"><div id="detMap"></div></div>
+      <div class="card" style="padding-top:8px;padding-bottom:8px"><div class="legend"><span>lento</span><i></i><span>veloce</span></div></div>
+      <div class="card"><div class="grid2" id="detStats"></div></div>
+      <div class="card">
+        <div id="chartRead">Tocca un grafico per vedere il punto sulla mappa</div>
+        <div class="chartLbl"><span>Altimetria</span><span id="altRange"></span></div>
+        <div class="chartBox"><canvas id="cAlt"></canvas><div class="cur"></div></div>
+        <div class="chartLbl" style="margin-top:10px"><span>Velocità</span><span id="spdRange"></span></div>
+        <div class="chartBox"><canvas id="cSpd"></canvas><div class="cur"></div></div>
+      </div>
+      <h2>Foto</h2>
+      <div class="card">
+        <div class="gallery" id="gallery"></div>
+        <div class="actions" style="margin-top:10px"><button class="btn wide" id="addGal">Aggiungi foto dalla galleria</button></div>
+      </div>
+      <h2 id="notesH">Note lungo il percorso</h2>
+      <div class="card" id="notesList"></div>
+      <h2>Parziali per km</h2>
+      <div class="card"><table class="splits num" id="splits"></table></div>
+      <h2>Diario dell'uscita</h2>
+      <div class="card"><textarea id="detText" placeholder="Com'è andata, con chi, che tempo faceva…"></textarea><div class="info" id="textSaved" style="margin-top:4px"></div></div>
+      <div class="card actions">
+        <button class="btn pri wide" id="bGpx">Esporta GPX</button>
+        <button class="btn wide" id="bRename">Modifica nome e bici</button>
+        <button class="btn danger wide" id="bDel">Elimina uscita</button>
+      </div>
+      <div style="height:24px"></div>
+    </div>
+  </section>
+
+  <!-- IMPOSTAZIONI -->
+  <section class="view" id="v-set">
+    <div class="head"><h1>Opzioni</h1></div>
+    <div class="scroll">
+      <h2>Registrazione</h2>
+      <div class="card">
+        <div class="set"><label>Tieni lo schermo acceso<small>Evita che il telefono vada in standby e interrompa il GPS</small></label><span class="sw"><input type="checkbox" id="oWake"><span></span></span></div>
+        <div class="set"><label>Annuncio vocale ogni km<small>Distanza, tempo e media letti ad alta voce</small></label><span class="sw"><input type="checkbox" id="oVoice"><span></span></span></div>
+        <div class="set"><label>Vibrazione ogni km</label><span class="sw"><input type="checkbox" id="oVib"><span></span></span></div>
+        <div class="set"><label>Precisione GPS minima<small>I punti meno precisi vengono scartati</small></label>
+          <select id="oAcc"><option value="15">15 m (rigorosa)</option><option value="30">30 m (normale)</option><option value="60">60 m (tollerante)</option></select></div>
+        <div class="set"><label>Bici predefinita</label>
+          <select id="oBike"></select></div>
+      </div>
+      <h2>Mappa</h2>
+      <div class="card">
+        <div class="set"><label>Stile mappa</label>
+          <select id="oTiles"><option value="osm">Standard</option><option value="cyclosm">Ciclabile (CyclOSM)</option><option value="topo">Rilievo (OpenTopoMap)</option></select></div>
+      </div>
+      <h2>Dati</h2>
+      <div class="card">
+        <div class="info" id="storeInfo" style="margin-bottom:10px">Le uscite e le foto restano salvate solo in questo browser, su questo telefono.</div>
+        <div class="actions">
+          <button class="btn pri wide" id="bBackup">Esporta backup</button>
+          <button class="btn wide" id="bRestore">Importa backup</button>
+        </div>
+      </div>
+      <h2>Prova</h2>
+      <div class="card">
+        <div class="set"><label>Modalità simulazione<small>Finto percorso a Villa Borghese, per provare l'app da fermo</small></label><span class="sw"><input type="checkbox" id="oSim"><span></span></span></div>
+      </div>
+      <h2>Da sapere</h2>
+      <div class="card info">
+        Il browser registra la posizione solo mentre la pagina è aperta e in primo piano: se blocchi lo schermo o passi a un'altra app, il tracciamento si ferma e riprende quando torni. Nel tratto mancante la distanza viene calcolata in linea retta.<br><br>
+        Le foto scattate durante l'uscita vengono collocate sulla mappa nel punto in cui ti trovavi. Quelle aggiunte dopo dalla galleria compaiono solo nella raccolta.<br><br>
+        Il file GPX si può importare in Strava, Komoot, Garmin Connect e simili.
+      </div>
+      <div style="height:24px"></div>
+    </div>
+  </section>
+
+  <nav id="tabs">
+    <button data-v="rec" class="on"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="6" cy="16" r="4"/><circle cx="18" cy="16" r="4"/><path d="M6 16l4-8h5l3 8M10 8l3 8h-1M14 5h3"/></svg>Registra</button>
+    <button data-v="list"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h10"/></svg>Uscite</button>
+    <button data-v="set"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M2 12h3M19 12h3M4.9 19.1L7 17M17 7l2.1-2.1"/></svg>Opzioni</button>
+  </nav>
+</div>
+
+<div id="modal"><div class="box"><h3></h3><div class="body"></div><div class="mbtns"></div></div></div>
+<div id="toast"></div>
+<div id="lightbox"><div class="img"><img alt=""></div><div class="bar"><p></p><button class="btn" id="lbDel">Elimina</button><button class="btn" id="lbClose">Chiudi</button></div></div>
+
+<input type="file" id="camIn" accept="image/*" capture="environment" class="hidden">
+<input type="file" id="galIn" accept="image/*" multiple class="hidden">
+<input type="file" id="bakIn" accept="application/json,.json" class="hidden">
+
+<script>
+"use strict";
+/* ---------- utilità ---------- */
+const $ = (s, r = document) => r.querySelector(s);
+const pad = n => String(n).padStart(2, "0");
+const nf = (n, d) => (isFinite(n) ? n : 0).toLocaleString("it-IT", { minimumFractionDigits: d, maximumFractionDigits: d });
+const fKm = m => nf(m / 1000, m >= 100000 ? 1 : 2);
+const fKmh = ms => nf(ms * 3.6, 1);
+const fDur = s => { s = Math.max(0, Math.round(s || 0)); const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), x = s % 60; return h ? `${h}:${pad(m)}:${pad(x)}` : `${m}:${pad(x)}`; };
+const fDurLong = s => { s = Math.round(s || 0); const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60); return h ? `${h} h ${pad(m)} min` : `${m} min`; };
+const fDate = t => new Date(t).toLocaleDateString("it-IT", { weekday: "short", day: "numeric", month: "short", year: "numeric" });
+const fTime = t => new Date(t).toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" });
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+function hav(a, b) {
+  const R = 6371000, k = Math.PI / 180, dLa = (b.lat - a.lat) * k, dLo = (b.lng - a.lng) * k;
+  const x = Math.sin(dLa / 2) ** 2 + Math.cos(a.lat * k) * Math.cos(b.lat * k) * Math.sin(dLo / 2) ** 2;
+  return 2 * R * Math.asin(Math.min(1, Math.sqrt(x)));
+}
+function toast(msg, ms = 2600) { const t = $("#toast"); t.textContent = msg; t.classList.add("on"); clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove("on"), ms); }
+function modal(title, html, buttons) {
+  return new Promise(res => {
+    const m = $("#modal"); $("h3", m).textContent = title; $(".body", m).innerHTML = html || "";
+    const bx = $(".mbtns", m); bx.innerHTML = "";
+    buttons.forEach(b => {
+      const el = document.createElement("button"); el.className = "btn " + (b.cls || ""); el.textContent = b.label;
+      el.onclick = () => { const out = { value: b.value, el: m }; const vals = {}; m.querySelectorAll("[data-k]").forEach(i => vals[i.dataset.k] = i.value); out.vals = vals; m.classList.remove("on"); res(out); };
+      bx.appendChild(el);
+    });
+    m.classList.add("on");
+    const f = m.querySelector("input,textarea"); if (f) setTimeout(() => f.focus(), 50);
+  });
+}
+const BIKES = ["Strada", "Gravel", "Mountain bike", "Città", "E-bike", "Altro"];
+function partOfDay(t) { const h = new Date(t).getHours(); return h < 6 ? "notte" : h < 12 ? "mattina" : h < 18 ? "pomeriggio" : "sera"; }
+function defaultName(t) { const d = new Date(t).toLocaleDateString("it-IT", { weekday: "long" }); return `Uscita di ${d} ${partOfDay(t)}`; }
+
+/* ---------- impostazioni ---------- */
+const DEF = { wake: true, voice: false, vib: true, acc: 30, bike: "Strada", tiles: "cyclosm", sim: false };
+let SET = { ...DEF };
+try { Object.assign(SET, JSON.parse(localStorage.getItem("bici-set") || "{}")); } catch (e) {}
+function saveSet() { try { localStorage.setItem("bici-set", JSON.stringify(SET)); } catch (e) {} }
+
+/* ---------- database (IndexedDB) ---------- */
+const DB = {
+  db: null,
+  open() {
+    return new Promise((res, rej) => {
+      const r = indexedDB.open("diario-bici", 1);
+      r.onupgradeneeded = () => {
+        const d = r.result;
+        d.createObjectStore("rides", { keyPath: "id" });
+        d.createObjectStore("photos", { keyPath: "id" }).createIndex("ride", "rideId");
+        d.createObjectStore("kv");
+      };
+      r.onsuccess = () => { this.db = r.result; res(); };
+      r.onerror = () => rej(r.error);
+    });
+  },
+  run(store, mode, fn) {
+    return new Promise((res, rej) => {
+      const tx = this.db.transaction(store, mode); const req = fn(tx.objectStore(store));
+      tx.oncomplete = () => res(req ? req.result : undefined); tx.onerror = () => rej(tx.error); tx.onabort = () => rej(tx.error);
+    });
+  },
+  put(s, v, k) { return this.run(s, "readwrite", o => k === undefined ? o.put(v) : o.put(v, k)); },
+  get(s, k) { return this.run(s, "readonly", o => o.get(k)); },
+  all(s) { return this.run(s, "readonly", o => o.getAll()); },
+  del(s, k) { return this.run(s, "readwrite", o => o.delete(k)); },
+  photosOf(id) { return this.run("photos", "readonly", o => o.index("ride").getAll(id)); },
+  async delPhotosOf(id) { const ps = await this.photosOf(id); for (const p of ps) await this.del("photos", p.id); }
+};
+
+/* ---------- mappe ---------- */
+const TILES = {
+  osm: { url: "https://tile.openstreetmap.org/{z}/{x}/{y}.png", attr: "© OpenStreetMap", max: 19 },
+  cyclosm: { url: "https://{s}.tile-cyclosm.openstreetmap.fr/cyclosm/{z}/{x}/{y}.png", attr: "© OpenStreetMap · CyclOSM", max: 20 },
+  topo: { url: "https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png", attr: "© OpenStreetMap · SRTM · OpenTopoMap", max: 17 }
+};
+function tileLayer(key) { const t = TILES[key] || TILES.osm; return L.tileLayer(t.url, { attribution: t.attr, maxZoom: t.max, subdomains: "abc" }); }
+function makeMap(el) {
+  const m = L.map(el, { zoomControl: false, attributionControl: true }).setView([41.9028, 12.4964], 13);
+  m._tl = tileLayer(SET.tiles).addTo(m);
+  const layers = { "Ciclabile": "cyclosm", "Standard": "osm", "Rilievo": "topo" }, base = {};
+  for (const [n, k] of Object.entries(layers)) base[n] = k === SET.tiles ? m._tl : tileLayer(k);
+  L.control.layers(base, null, { position: "topright" }).addTo(m);
+  return m;
+}
+function photoIcon(url) { return L.divIcon({ className: "", html: `<div class="ph-pin"><img src="${url}"></div>`, iconSize: [42, 42], iconAnchor: [21, 21] }); }
+const noteIcon = L.divIcon({ className: "", html: '<div class="note-pin"></div>', iconSize: [30, 30], iconAnchor: [15, 30] });
+const endIcon = c => L.divIcon({ className: "", html: `<div class="end-pin" style="background:${c}"></div>`, iconSize: [16, 16], iconAnchor: [8, 8] });
+const meIcon = L.divIcon({ className: "", html: '<div class="me-dot"></div>', iconSize: [20, 20], iconAnchor: [10, 10] });
+
+/* ---------- stato ---------- */
+const S = {
+  ride: null, watch: null, sim: null, fix: null, follow: true, wake: null, lastPersist: 0,
+  map: null, me: null, accCircle: null, segs: [], segIdx: -1, recLayer: null, urls: [],
+  dmap: null, dLayer: null, dCursor: null, detId: null, detUrls: []
+};
+
+/* ---------- GPS ---------- */
+function gpsStart() {
+  gpsStop();
+  if (SET.sim) { simStart(); return; }
+  if (!("geolocation" in navigator)) { setPill("bad", "GPS non disponibile"); return; }
+  setPill("", "Ricerca GPS…");
+  S.watch = navigator.geolocation.watchPosition(
+    p => onFix(p.coords, p.timestamp || Date.now()),
+    e => {
+      if (e.code === 1) { setPill("bad", "Permesso negato"); showBanner("Il permesso di posizione è stato negato. Abilitalo nelle impostazioni del browser per questo sito."); }
+      else setPill("bad", e.code === 3 ? "GPS lento…" : "GPS non disponibile");
+    },
+    { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 }
+  );
+}
+function gpsStop() {
+  if (S.watch != null) navigator.geolocation.clearWatch(S.watch); S.watch = null;
+  if (S.sim) clearInterval(S.sim.h); S.sim = null;
+}
+function setPill(cls, txt) { const p = $("#gpsPill"); p.className = cls; $("span", p).textContent = txt; }
+
+/* simulazione: anello a Villa Borghese con una sosta ogni 2 minuti */
+function simStart() {
+  const c = { lat: 41.9128, lng: 12.4852 }, R = 650;
+  S.sim = { i: 0, a: 0 };
+  setPill("mid", "Simulazione");
+  S.sim.h = setInterval(() => {
+    const s = S.sim; s.i++;
+    const stop = s.i % 120 > 105, v = stop ? 0 : 5.5 + Math.sin(s.i / 9) * 1.8 + Math.random() * 0.6;
+    s.a += v / R;
+    const n = () => (Math.random() - .5) * 3;
+    const lat = c.lat + (R * Math.sin(s.a) + n()) / 111320;
+    const lng = c.lng + (R * 1.4 * Math.cos(s.a) + n()) / (111320 * Math.cos(c.lat * Math.PI / 180));
+    onFix({ latitude: lat, longitude: lng, altitude: 52 + 14 * Math.sin(s.a * 2) + Math.random(), accuracy: 4 + Math.random() * 5, speed: v }, Date.now());
+  }, 1000);
+}
+
+function onFix(c, t) {
+  const fix = { lat: c.latitude, lng: c.longitude, acc: c.accuracy || 99, alt: c.altitude == null ? null : c.altitude, spd: c.speed == null || isNaN(c.speed) ? null : c.speed, t };
+  S.fix = fix;
+  if (!SET.sim) setPill(fix.acc <= 12 ? "good" : fix.acc <= 30 ? "mid" : "bad", `GPS ±${Math.round(fix.acc)} m`);
+  const ll = [fix.lat, fix.lng];
+  if (!S.me) { S.me = L.marker(ll, { icon: meIcon, zIndexOffset: 1000 }).addTo(S.map); S.accCircle = L.circle(ll, { radius: fix.acc, weight: 0, fillOpacity: .12 }).addTo(S.map); S.map.setView(ll, 16); }
+  else { S.me.setLatLng(ll); S.accCircle.setLatLng(ll).setRadius(fix.acc); if (S.follow) S.map.panTo(ll, { animate: true }); }
+
+  const r = S.ride;
+  if (!r || r.status !== "rec") return;
+  if (fix.acc > SET.acc) return;
+  const p = { t, lat: fix.lat, lng: fix.lng, alt: fix.alt, acc: Math.round(fix.acc), seg: r.seg, v: 0 };
+  const last = r.pts[r.pts.length - 1];
+  if (last && last.seg === p.seg) {
+    const dt = (t - last.t) / 1000; if (dt < 0.9) return;   // al massimo un punto al secondo
+    const d = hav(last, p);
+    const still = fix.spd != null && fix.spd < 0.6 && d < 20;
+    const minMove = Math.max(4, (p.acc + last.acc) / 2 * 0.6);
+    if (still || d < minMove) {
+      if (fix.spd != null) r.cur = fix.spd < 0.6 ? 0 : fix.spd;
+      if (dt < 15) return;                     // fermo: tieni solo un punto ogni 15 s
+      p.lat = last.lat; p.lng = last.lng; p.v = 0;
+    } else {
+      const v = d / dt;
+      if (v > 25) return;                      // salto anomalo (> 90 km/h)
+      r.dist += d; p.v = v;
+      if (v > 0.8) r.moving += dt;
+      const sp = fix.spd != null ? fix.spd : v;
+      r.cur = r.cur ? r.cur * 0.4 + sp * 0.6 : sp;
+      if (p.acc <= 20 && r.cur > r.maxSpd) r.maxSpd = r.cur;
+    }
+  } else {
+    r.cur = fix.spd || 0;
+  }
+  if (p.alt != null) {
+    if (r.altRef == null) r.altRef = p.alt;
+    else if (p.alt - r.altRef >= 4) { r.gain += p.alt - r.altRef; r.altRef = p.alt; }
+    else if (r.altRef - p.alt >= 4) { r.loss += r.altRef - p.alt; r.altRef = p.alt; }
+    r.altMin = r.altMin == null ? p.alt : Math.min(r.altMin, p.alt);
+    r.altMax = r.altMax == null ? p.alt : Math.max(r.altMax, p.alt);
+  }
+  r.pts.push(p); r.lastT = Date.now();
+  drawRecPoint(p);
+  kmAlert();
+  renderStats();
+  if (Date.now() - S.lastPersist > 5000) persistActive();
+}
+
+function kmAlert() {
+  const r = S.ride; const km = Math.floor(r.dist / 1000);
+  if (km >= r.nextKm) {
+    r.nextKm = km + 1;
+    if (SET.vib && navigator.vibrate) try { navigator.vibrate([120, 80, 120]); } catch (e) {}
+    say(`${km} ${km === 1 ? "chilometro" : "chilometri"}. Tempo ${spokenDur(r.moving)}. Media ${nf(r.dist / r.moving * 3.6, 1).replace(",", " virgola ")} all'ora.`);
+  }
+}
+function spokenDur(s) { s = Math.round(s); const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60); return (h ? `${h} ${h === 1 ? "ora" : "ore"} e ` : "") + `${m} minuti`; }
+function say(txt) {
+  if (!SET.voice || !("speechSynthesis" in window)) return;
+  try { const u = new SpeechSynthesisUtterance(txt); u.lang = "it-IT"; speechSynthesis.speak(u); } catch (e) {}
+}
+
+/* ---------- disegno del percorso in registrazione ---------- */
+function drawRecPoint(p) {
+  if (S.segIdx !== p.seg || !S.segs.length) {
+    const prev = S.segs.length ? S.segs[S.segs.length - 1] : null;
+    if (prev) prev.setStyle({ opacity: .75 });
+    S.segs.push(L.polyline([], { color: "#d1452e", weight: 5, opacity: .9, lineJoin: "round" }).addTo(S.recLayer));
+    S.segIdx = p.seg;
+  }
+  S.segs[S.segs.length - 1].addLatLng([p.lat, p.lng]);
+}
+function clearRecMap() {
+  S.recLayer.clearLayers(); S.segs = []; S.segIdx = -1;
+  S.urls.forEach(u => URL.revokeObjectURL(u)); S.urls = [];
+}
+async function rebuildRecMap() {
+  clearRecMap(); const r = S.ride; if (!r) return;
+  r.pts.forEach(drawRecPoint);
+  (r.notes || []).forEach(n => addNoteMarker(n, S.recLayer));
+  const ps = await DB.photosOf(r.id);
+  ps.forEach(ph => { if (ph.lat != null) { const u = URL.createObjectURL(ph.thumb); S.urls.push(u); L.marker([ph.lat, ph.lng], { icon: photoIcon(u) }).addTo(S.recLayer); } });
+}
+function addNoteMarker(n, layer) {
+  if (n.lat == null) return;
+  L.marker([n.lat, n.lng], { icon: noteIcon }).bindPopup(`<b>${fTime(n.t)}</b><br>${esc(n.text)}`).addTo(layer);
+}
+
+/* ---------- statistiche live ---------- */
+function elapsed(r) { const now = r.end || Date.now(); return (now - r.start - r.pausedMs - (r.status === "paused" ? now - r.pauseStart : 0)) / 1000; }
+function renderStats() {
+  const r = S.ride;
+  if (!r) {
+    $("#spd").textContent = S.fix && S.fix.spd != null ? fKmh(S.fix.spd) : "0,0";
+    ["sDist"].forEach(id => $("#" + id).textContent = "0,00");
+    $("#sTime").textContent = "0:00"; $("#sMov").textContent = "in mov. 0:00";
+    $("#sAvg").textContent = $("#sMax").textContent = "0,0"; $("#sGain").textContent = "0";
+    $("#sAlt").textContent = S.fix && S.fix.alt != null ? Math.round(S.fix.alt) : "–";
+    return;
+  }
+  $("#spd").textContent = r.status === "rec" ? fKmh(r.cur || 0) : "0,0";
+  $("#sDist").textContent = fKm(r.dist);
+  $("#sTime").textContent = fDur(elapsed(r));
+  $("#sMov").textContent = "in mov. " + fDur(r.moving);
+  $("#sAvg").textContent = r.moving > 5 ? fKmh(r.dist / r.moving) : "0,0";
+  $("#sMax").textContent = fKmh(r.maxSpd);
+  $("#sGain").textContent = Math.round(r.gain);
+  $("#sAlt").textContent = S.fix && S.fix.alt != null ? Math.round(S.fix.alt) : "–";
+}
+setInterval(() => {
+  const r = S.ride;
+  if (r && r.status === "rec" && r.lastT && Date.now() - r.lastT > 8000) r.cur = 0;
+  if (S.fix && Date.now() - S.fix.t > 30000 && !SET.sim) setPill("bad", "Segnale GPS perso");
+  if ($("#v-rec").classList.contains("on")) renderStats();
+}, 1000);
+
+/* ---------- controllo uscita ---------- */
+function renderControls() {
+  const r = S.ride;
+  $("#idleCtl").classList.toggle("hidden", !!r);
+  $("#controls").classList.toggle("hidden", !r);
+  const st = $("#recState"); st.className = r ? r.status : ""; st.textContent = r && r.status === "paused" ? "IN PAUSA" : "● REC";
+  if (r) {
+    const b = $("#bPause");
+    b.className = "cbtn big " + (r.status === "rec" ? "pause" : "resume");
+    b.innerHTML = r.status === "rec"
+      ? '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg><span>Pausa</span>'
+      : '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg><span>Riprendi</span>';
+  }
+}
+async function startRide() {
+  if (!window.isSecureContext && !SET.sim) { await modal("GPS non utilizzabile", "La pagina non è aperta da un indirizzo sicuro (https), quindi il browser non fornisce la posizione. Puoi provare l'app attivando la simulazione nelle Opzioni.", [{ label: "Ho capito", cls: "pri" }]); return; }
+  const now = Date.now();
+  S.ride = { id: "r" + now, start: now, status: "rec", pausedMs: 0, pauseStart: null, seg: 0, pts: [], dist: 0, moving: 0, gain: 0, loss: 0,
+    maxSpd: 0, cur: 0, altRef: null, altMin: null, altMax: null, notes: [], bike: SET.bike, nextKm: 1, lastT: null };
+  clearRecMap(); S.follow = true; $("#btnCenter").classList.remove("off");
+  if (S.watch == null && !S.sim) gpsStart();
+  if (S.fix && Date.now() - S.fix.t < 5000) onFix({ latitude: S.fix.lat, longitude: S.fix.lng, altitude: S.fix.alt, accuracy: S.fix.acc, speed: S.fix.spd }, Date.now());
+  keepAwake(true); renderControls(); renderStats(); persistActive();
+  say("Registrazione avviata. Buona pedalata.");
+}
+function togglePause() {
+  const r = S.ride; if (!r) return;
+  if (r.status === "rec") { r.status = "paused"; r.pauseStart = Date.now(); r.seg++; r.cur = 0; toast("In pausa: tempo e distanza fermi"); }
+  else { r.pausedMs += Date.now() - r.pauseStart; r.pauseStart = null; r.status = "rec"; toast("Si riparte"); keepAwake(true); }
+  renderControls(); renderStats(); persistActive();
+}
+async function stopRide() {
+  const r = S.ride; if (!r) return;
+  const a = await modal("Terminare l'uscita?", `${fKm(r.dist)} km in ${fDur(r.moving)} di movimento.`, [
+    { label: "Termina e salva", cls: "pri", value: "save" }, { label: "Continua a registrare", value: "no" }, { label: "Scarta l'uscita", cls: "danger", value: "discard" }]);
+  if (a.value === "no") return;
+  if (a.value === "discard") {
+    const b = await modal("Scartare l'uscita?", "Percorso, foto e note di questa uscita verranno eliminati.", [{ label: "Sì, scarta", cls: "danger", value: "y" }, { label: "Annulla", value: "n" }]);
+    if (b.value !== "y") return;
+    await DB.delPhotosOf(r.id); await DB.del("kv", "active");
+    S.ride = null; clearRecMap(); keepAwake(false); renderControls(); renderStats(); toast("Uscita scartata"); return;
+  }
+  if (r.status === "paused") { r.pausedMs += Date.now() - r.pauseStart; r.status = "rec"; r.pauseStart = null; }
+  r.end = Date.now();
+  const opts = BIKES.map(b => `<option ${b === r.bike ? "selected" : ""}>${b}</option>`).join("");
+  const n = await modal("Salva l'uscita", `<label>Nome</label><input type="text" data-k="name" value="${esc(defaultName(r.start))}"><label>Bici</label><select data-k="bike">${opts}</select>`,
+    [{ label: "Salva", cls: "pri", value: "ok" }]);
+  const ride = {
+    id: r.id, name: (n.vals.name || "").trim() || defaultName(r.start), bike: n.vals.bike || r.bike, start: r.start, end: r.end,
+    elapsed: elapsed(r), moving: r.moving, dist: r.dist, maxSpd: r.maxSpd, gain: r.gain, loss: r.loss, altMin: r.altMin, altMax: r.altMax,
+    pts: r.pts, notes: r.notes, text: ""
+  };
+  await DB.put("rides", ride); await DB.del("kv", "active");
+  S.ride = null; clearRecMap(); keepAwake(false); renderControls(); renderStats();
+  say(`Uscita salvata. ${nf(ride.dist / 1000, 1).replace(",", " virgola ")} chilometri.`);
+  openDetail(ride.id);
+}
+async function persistActive() {
+  if (!S.ride) return; S.lastPersist = Date.now();
+  try { await DB.put("kv", { ...S.ride, savedAt: Date.now() }, "active"); } catch (e) {}
+}
+async function keepAwake(on) {
+  try {
+    if (on && SET.wake && "wakeLock" in navigator) { if (!S.wake || S.wake.released) S.wake = await navigator.wakeLock.request("screen"); }
+    else if (!on && S.wake) { await S.wake.release(); S.wake = null; }
+  } catch (e) {}
+}
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "hidden") persistActive();
+  else if (S.ride && S.ride.status === "rec") keepAwake(true);
+});
+
+/* ---------- foto e note ---------- */
+function loadImg(file) {
+  return new Promise((res, rej) => { const u = URL.createObjectURL(file); const i = new Image(); i.onload = () => { res(i); URL.revokeObjectURL(u); }; i.onerror = () => { rej(new Error("Immagine non leggibile")); URL.revokeObjectURL(u); }; i.src = u; });
+}
+function resize(img, max, q) {
+  const k = Math.min(1, max / Math.max(img.naturalWidth, img.naturalHeight));
+  const c = document.createElement("canvas"); c.width = Math.round(img.naturalWidth * k); c.height = Math.round(img.naturalHeight * k);
+  c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+  return new Promise(res => c.toBlob(b => res(b), "image/jpeg", q));
+}
+function squareThumb(img, size) {
+  const c = document.createElement("canvas"); c.width = c.height = size; const s = Math.min(img.naturalWidth, img.naturalHeight);
+  c.getContext("2d").drawImage(img, (img.naturalWidth - s) / 2, (img.naturalHeight - s) / 2, s, s, 0, 0, size, size);
+  return new Promise(res => c.toBlob(b => res(b), "image/jpeg", .8));
+}
+async function makePhoto(file, rideId, pos, caption) {
+  const img = await loadImg(file);
+  const full = await resize(img, 1800, .84), thumb = await squareThumb(img, 220);
+  const ph = { id: "p" + Date.now() + Math.random().toString(36).slice(2, 6), rideId, t: pos ? pos.t : (file.lastModified || Date.now()), lat: pos ? pos.lat : null, lng: pos ? pos.lng : null, caption: caption || "", full, thumb };
+  await DB.put("photos", ph); return ph;
+}
+$("#camIn").onchange = async e => {
+  const f = e.target.files[0]; e.target.value = ""; if (!f || !S.ride) return;
+  const pos = S.fix ? { lat: S.fix.lat, lng: S.fix.lng, t: Date.now() } : null;
+  const a = await modal("Foto aggiunta", '<label>Didascalia (facoltativa)</label><input type="text" data-k="cap" placeholder="Es. vista dal belvedere">', [{ label: "Salva", cls: "pri", value: "ok" }]);
+  try {
+    const ph = await makePhoto(f, S.ride.id, pos, a.vals.cap);
+    if (ph.lat != null) { const u = URL.createObjectURL(ph.thumb); S.urls.push(u); L.marker([ph.lat, ph.lng], { icon: photoIcon(u) }).addTo(S.recLayer); }
+    toast(pos ? "Foto salvata sul percorso" : "Foto salvata (posizione non disponibile)");
+  } catch (err) { toast("Impossibile salvare la foto"); }
+};
+async function addNote() {
+  const r = S.ride; if (!r) return;
+  const pos = S.fix ? { lat: S.fix.lat, lng: S.fix.lng } : {};
+  const a = await modal("Nota sul percorso", '<textarea data-k="txt" placeholder="Fontanella, buca, bar, panorama…"></textarea>', [{ label: "Salva nota", cls: "pri", value: "ok" }, { label: "Annulla", value: "no" }]);
+  const txt = (a.vals.txt || "").trim(); if (a.value !== "ok" || !txt) return;
+  const n = { t: Date.now(), lat: pos.lat ?? null, lng: pos.lng ?? null, text: txt };
+  r.notes.push(n); addNoteMarker(n, S.recLayer); persistActive(); toast("Nota salvata");
+}
+
+/* ---------- storico ---------- */
+function miniSvg(pts) {
+  if (!pts || pts.length < 2) return '<svg class="mini" viewBox="0 0 64 52"></svg>';
+  let a = Infinity, b = -Infinity, c = Infinity, d = -Infinity;
+  for (const p of pts) { a = Math.min(a, p.lat); b = Math.max(b, p.lat); c = Math.min(c, p.lng); d = Math.max(d, p.lng); }
+  const kx = Math.cos(((a + b) / 2) * Math.PI / 180), w = (d - c) * kx || 1e-9, h = (b - a) || 1e-9, sc = Math.min(52 / w, 40 / h);
+  const ox = (64 - w * sc) / 2, oy = (52 - h * sc) / 2, step = Math.max(1, Math.floor(pts.length / 160));
+  let path = "";
+  for (let i = 0; i < pts.length; i += step) { const p = pts[i]; path += (i ? "L" : "M") + (ox + (p.lng - c) * kx * sc).toFixed(1) + " " + (oy + (b - p.lat) * sc).toFixed(1); }
+  return `<svg class="mini" viewBox="0 0 64 52"><path d="${path}" fill="none" stroke="#d1452e" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"/></svg>`;
+}
+async function renderList() {
+  const box = $("#listScroll");
+  const rides = (await DB.all("rides")).sort((x, y) => y.start - x.start);
+  const photos = await DB.all("photos"); const pc = {}; photos.forEach(p => pc[p.rideId] = (pc[p.rideId] || 0) + 1);
+  if (!rides.length) { box.innerHTML = '<div class="empty">Nessuna uscita salvata.<br>Vai su <b>Registra</b> e premi <b>Inizia l\'uscita</b>.</div>'; return; }
+  const now = new Date(), m0 = new Date(now.getFullYear(), now.getMonth(), 1).getTime(), y0 = new Date(now.getFullYear(), 0, 1).getTime();
+  let tot = 0, mov = 0, gain = 0, km = 0, ky = 0;
+  rides.forEach(r => { tot += r.dist; mov += r.moving; gain += r.gain; if (r.start >= m0) km += r.dist; if (r.start >= y0) ky += r.dist; });
+  let html = `<div class="card totals num">
+    <div><b>${nf(tot / 1000, 1)}</b><span>km totali · ${rides.length} ${rides.length === 1 ? "uscita" : "uscite"}</span></div>
+    <div><b>${fDurLong(mov)}</b><span>in movimento</span></div>
+    <div><b>${nf(km / 1000, 1)}</b><span>km questo mese</span></div>
+    <div><b>${nf(ky / 1000, ky < 100000 ? 1 : 0)}</b><span>km nel ${now.getFullYear()} · ${nf(gain, 0)} m saliti</span></div></div>`;
+  let lastMonth = "";
+  rides.forEach(r => {
+    const mo = new Date(r.start).toLocaleDateString("it-IT", { month: "long", year: "numeric" });
+    if (mo !== lastMonth) { html += `<h2>${mo}</h2>`; lastMonth = mo; }
+    html += `<button class="ride" data-id="${r.id}">${miniSvg(r.pts)}<div class="t"><b>${esc(r.name)}</b><span>${fDate(r.start)} · ${fTime(r.start)} · ${esc(r.bike || "")}</span>
+      <div class="row num"><b style="display:inline;font-size:13px">${fKm(r.dist)} km</b> · ${fDur(r.moving)} · ${r.moving > 0 ? fKmh(r.dist / r.moving) : "0,0"} km/h</div></div>
+      ${pc[r.id] ? `<span class="ph">${pc[r.id]} foto</span>` : ""}</button>`;
+  });
+  box.innerHTML = html;
+  box.querySelectorAll(".ride").forEach(b => b.onclick = () => openDetail(b.dataset.id));
+}
+
+/* ---------- dettaglio ---------- */
+function smooth(a, w) { const o = new Array(a.length); let s = 0, q = []; for (let i = 0; i < a.length; i++) { q.push(a[i]); s += a[i]; if (q.length > w) s -= q.shift(); o[i] = s / q.length; } return o; }
+function speedColor(f) { const st = [[43, 111, 214], [46, 157, 87], [224, 163, 27], [201, 65, 47]]; f = Math.max(0, Math.min(.999, f)) * 3; const i = Math.floor(f), k = f - i, A = st[i], B = st[i + 1]; return `rgb(${A.map((x, j) => Math.round(x + (B[j] - x) * k)).join(",")})`; }
+function analyse(r) {
+  const P = r.pts, n = P.length, cum = new Array(n), mt = new Array(n), v = new Array(n);
+  let d = 0, m = 0;
+  for (let i = 0; i < n; i++) {
+    if (i && P[i].seg === P[i - 1].seg) { const dd = hav(P[i - 1], P[i]), dt = (P[i].t - P[i - 1].t) / 1000; d += dd; const vv = dt > 0 ? dd / dt : 0; if (vv > 0.8) m += dt; v[i] = vv; }
+    else v[i] = 0;
+    cum[i] = d; mt[i] = m;
+  }
+  for (let i = 0; i < n - 1; i++) if ((!i || P[i].seg !== P[i - 1].seg) && P[i + 1].seg === P[i].seg) v[i] = v[i + 1];
+  const vs = smooth(v, 5);
+  const alts = P.map(p => p.alt), hasAlt = alts.some(a => a != null);
+  let altS = null;
+  if (hasAlt) { let lastA = alts.find(a => a != null); altS = smooth(alts.map(a => a == null ? lastA : (lastA = a)), 7); }
+  const splits = []; let nk = 1000, lastM = 0;
+  for (let i = 0; i < n; i++) if (cum[i] >= nk) { splits.push({ km: nk / 1000, dur: mt[i] - lastM }); lastM = mt[i]; nk += 1000; }
+  const rest = d - (nk - 1000); if (rest > 50) splits.push({ km: (nk - 1000 + rest) / 1000, dur: mt[n - 1] - lastM, part: rest });
+  return { cum, vs, altS, splits };
+}
+async function openDetail(id) {
+  const r = await DB.get("rides", id); if (!r) return;
+  S.detId = id; showView("det");
+  $("#detName").textContent = r.name;
+  $("#detSub").textContent = `${fDate(r.start)}, ${fTime(r.start)}–${fTime(r.end)} · ${r.bike || ""}`;
+  $("#detText").value = r.text || ""; $("#textSaved").textContent = "";
+  $("#detScroll").scrollTop = 0;
+  if (!S.dmap) { S.dmap = makeMap($("#detMap")); S.dLayer = L.layerGroup().addTo(S.dmap); }
+  setTimeout(() => S.dmap.invalidateSize(), 30);
+  S.dLayer.clearLayers(); S.detUrls.forEach(u => URL.revokeObjectURL(u)); S.detUrls = [];
+  const A = analyse(r); S.detA = A; S.detR = r;
+  const P = r.pts;
+  // percorso colorato per velocità
+  const vmax = Math.max(4, ...A.vs.filter(x => isFinite(x)).sort((a, b) => b - a).slice(Math.floor(A.vs.length * 0.03), Math.floor(A.vs.length * 0.03) + 1));
+  let run = null, runCol = null;
+  for (let i = 1; i < P.length; i++) {
+    if (P[i].seg !== P[i - 1].seg) { run = null; continue; }
+    const col = speedColor(A.vs[i] / vmax);
+    const bucket = Math.round(A.vs[i] / vmax * 8);
+    if (!run || runCol !== bucket) { run = L.polyline([[P[i - 1].lat, P[i - 1].lng]], { color: col, weight: 5, opacity: .95, lineJoin: "round" }).addTo(S.dLayer); runCol = bucket; }
+    run.addLatLng([P[i].lat, P[i].lng]);
+  }
+  if (P.length) {
+    L.marker([P[0].lat, P[0].lng], { icon: endIcon("#2e9d57") }).bindPopup("Partenza " + fTime(P[0].t)).addTo(S.dLayer);
+    L.marker([P[P.length - 1].lat, P[P.length - 1].lng], { icon: endIcon("#c9412f") }).bindPopup("Arrivo " + fTime(P[P.length - 1].t)).addTo(S.dLayer);
+    const b = L.latLngBounds(P.map(p => [p.lat, p.lng]));
+    setTimeout(() => S.dmap.fitBounds(b, { padding: [28, 28] }), 60);
+  }
+  S.dCursor = L.circleMarker([0, 0], { radius: 7, color: "#fff", weight: 3, fillColor: "#1d2421", fillOpacity: 1 });
+  (r.notes || []).forEach(n => addNoteMarker(n, S.dLayer));
+  // statistiche
+  const st = [
+    [fKm(r.dist), "km"], [fDur(r.moving), "in movimento"], [fDur(r.elapsed), "tempo totale"],
+    [r.moving > 0 ? fKmh(r.dist / r.moving) : "0,0", "media km/h"], [fKmh(r.maxSpd), "max km/h"], [nf(r.gain, 0) + " m", "salita"],
+    [nf(r.loss, 0) + " m", "discesa"], [r.altMax != null ? nf(r.altMax, 0) + " m" : "–", "quota max"], [r.altMin != null ? nf(r.altMin, 0) + " m" : "–", "quota min"]
+  ];
+  $("#detStats").innerHTML = st.map(([b, s]) => `<div class="stat"><b class="num">${b}</b><span>${s}</span></div>`).join("");
+  // grafici
+  setTimeout(() => drawCharts(), 40);
+  // foto
+  await renderGallery();
+  // note
+  const notes = r.notes || [];
+  $("#notesH").classList.toggle("hidden", !notes.length); $("#notesList").classList.toggle("hidden", !notes.length);
+  $("#notesList").innerHTML = notes.map(n => `<div class="noteItem"><small>${fTime(n.t)}</small>${esc(n.text)}</div>`).join("");
+  // parziali
+  const fastest = Math.min(...A.splits.filter(s => !s.part).map(s => s.dur), Infinity);
+  $("#splits").innerHTML = A.splits.length ? A.splits.map(s => {
+    const len = s.part || 1000, sp = s.dur > 0 ? len / s.dur : 0, f = fastest < Infinity && !s.part ? fastest / s.dur : sp * (fastest / 1000);
+    return `<tr><td style="width:64px">${s.part ? nf(s.km, 2) : "km " + s.km}</td><td>${fDur(s.dur)}</td><td style="width:38%"><div class="bar" style="width:${Math.max(6, Math.min(100, f * 100))}%"></div></td><td>${fKmh(sp)} km/h</td></tr>`;
+  }).join("") : '<tr><td class="info">Uscita più corta di 1 km</td></tr>';
+}
+async function renderGallery() {
+  const r = S.detR; const ps = (await DB.photosOf(r.id)).sort((a, b) => a.t - b.t);
+  S.detPhotos = ps;
+  const g = $("#gallery");
+  if (!ps.length) { g.innerHTML = '<div class="info" style="grid-column:1/-1">Nessuna foto per questa uscita.</div>'; return; }
+  g.innerHTML = "";
+  ps.forEach((ph, i) => {
+    const u = URL.createObjectURL(ph.thumb); S.detUrls.push(u);
+    const b = document.createElement("button"); b.innerHTML = `<img src="${u}" alt="">`; b.onclick = () => openLightbox(i); g.appendChild(b);
+    if (ph.lat != null) { const mk = L.marker([ph.lat, ph.lng], { icon: photoIcon(u) }).addTo(S.dLayer); mk.on("click", () => openLightbox(i)); }
+  });
+}
+function drawChart(cv, xs, ys, o) {
+  const dpr = window.devicePixelRatio || 1, w = cv.clientWidth, h = cv.clientHeight;
+  cv.width = w * dpr; cv.height = h * dpr; const g = cv.getContext("2d"); g.scale(dpr, dpr); g.clearRect(0, 0, w, h);
+  const L0 = 36, R0 = 6, T0 = 8, B0 = 18;
+  cv._geo = null;
+  if (!ys || xs.length < 2) { g.fillStyle = "#6b736f"; g.font = "13px system-ui"; g.fillText("Dati non disponibili", L0, h / 2); return; }
+  let lo = Infinity, hi = -Infinity; for (const y of ys) { if (y < lo) lo = y; if (y > hi) hi = y; }
+  if (o.zero) lo = 0; if (hi - lo < o.span) { const mid = (hi + lo) / 2; lo = o.zero ? 0 : mid - o.span / 2; hi = lo + o.span; }
+  const x0 = xs[0], x1 = xs[xs.length - 1] || 1;
+  const X = x => L0 + (x - x0) / ((x1 - x0) || 1) * (w - L0 - R0), Y = y => T0 + (1 - (y - lo) / (hi - lo)) * (h - T0 - B0);
+  g.strokeStyle = "#e3e0d8"; g.fillStyle = "#6b736f"; g.font = "10px system-ui"; g.lineWidth = 1;
+  for (let k = 0; k <= 2; k++) { const yv = lo + (hi - lo) * k / 2, yy = Y(yv); g.beginPath(); g.moveTo(L0, yy); g.lineTo(w - R0, yy); g.stroke(); g.fillText(o.fmt(yv), 2, yy + 3); }
+  g.fillText("0", L0, h - 4); const tl = nf(x1 / 1000, 1) + " km"; g.fillText(tl, w - R0 - g.measureText(tl).width, h - 4);
+  const step = Math.max(1, Math.floor(xs.length / (w * 1.5)));
+  g.beginPath(); g.moveTo(X(xs[0]), Y(ys[0]));
+  for (let i = step; i < xs.length; i += step) g.lineTo(X(xs[i]), Y(ys[i]));
+  g.lineTo(X(xs[xs.length - 1]), Y(ys[ys.length - 1]));
+  g.strokeStyle = o.color; g.lineWidth = 2; g.lineJoin = "round"; g.stroke();
+  g.lineTo(X(xs[xs.length - 1]), h - B0); g.lineTo(X(xs[0]), h - B0); g.closePath();
+  const gr = g.createLinearGradient(0, T0, 0, h - B0); gr.addColorStop(0, o.fill); gr.addColorStop(1, "rgba(255,255,255,0)"); g.fillStyle = gr; g.fill();
+  cv._geo = { L0, R0, w, x0, x1 };
+}
+function drawCharts() {
+  const A = S.detA; if (!A) return;
+  drawChart($("#cAlt"), A.cum, A.altS, { color: "#7a5a2e", fill: "rgba(160,120,60,.35)", span: 20, fmt: v => Math.round(v) });
+  drawChart($("#cSpd"), A.cum, A.vs.map(v => v * 3.6), { color: "#2b6fd6", fill: "rgba(43,111,214,.25)", span: 10, zero: true, fmt: v => Math.round(v) });
+  $("#altRange").textContent = A.altS ? `${nf(S.detR.gain, 0)} m di salita` : "";
+  $("#spdRange").textContent = `media ${S.detR.moving > 0 ? fKmh(S.detR.dist / S.detR.moving) : "0,0"} km/h`;
+}
+function chartPointer(e) {
+  const cv = e.currentTarget, geo = cv._geo, A = S.detA; if (!geo || !A) return;
+  const rect = cv.getBoundingClientRect(), px = Math.max(geo.L0, Math.min(geo.w - geo.R0, e.clientX - rect.left));
+  const dist = geo.x0 + (px - geo.L0) / (geo.w - geo.L0 - geo.R0) * (geo.x1 - geo.x0);
+  let lo = 0, hi = A.cum.length - 1; while (lo < hi) { const m = (lo + hi) >> 1; if (A.cum[m] < dist) lo = m + 1; else hi = m; }
+  const p = S.detR.pts[lo];
+  document.querySelectorAll(".chartBox .cur").forEach(c => { c.style.display = "block"; c.style.left = px + "px"; });
+  $("#chartRead").textContent = `km ${nf(A.cum[lo] / 1000, 2)} · ${fKmh(A.vs[lo])} km/h` + (A.altS ? ` · ${Math.round(A.altS[lo])} m` : "") + ` · ${fTime(p.t)}`;
+  S.dCursor.setLatLng([p.lat, p.lng]); if (!S.dLayer.hasLayer(S.dCursor)) S.dCursor.addTo(S.dLayer);
+}
+["#cAlt", "#cSpd"].forEach(s => { const c = $(s); c.addEventListener("pointerdown", chartPointer); c.addEventListener("pointermove", e => { if (e.buttons || e.pointerType !== "mouse") chartPointer(e); }); });
+window.addEventListener("resize", () => { if ($("#v-det").classList.contains("on")) drawCharts(); });
+
+function openLightbox(i) {
+  const ph = S.detPhotos[i]; if (!ph) return;
+  const lb = $("#lightbox"), img = $("img", lb); if (img._u) URL.revokeObjectURL(img._u);
+  img._u = URL.createObjectURL(ph.full); img.src = img._u;
+  $("p", lb).textContent = (ph.caption ? ph.caption + " · " : "") + fTime(ph.t);
+  lb.classList.add("on"); lb._ph = ph;
+}
+$("#lbClose").onclick = () => $("#lightbox").classList.remove("on");
+$("#lbDel").onclick = async () => {
+  const ph = $("#lightbox")._ph;
+  const a = await modal("Eliminare la foto?", "", [{ label: "Elimina", cls: "danger", value: "y" }, { label: "Annulla", value: "n" }]);
+  if (a.value !== "y") return;
+  await DB.del("photos", ph.id); $("#lightbox").classList.remove("on"); openDetail(S.detId);
+};
+$("#addGal").onclick = () => $("#galIn").click();
+$("#galIn").onchange = async e => {
+  const files = [...e.target.files]; e.target.value = ""; if (!files.length) return;
+  toast("Elaboro " + files.length + " foto…");
+  for (const f of files) { try { await makePhoto(f, S.detId, null, ""); } catch (err) {} }
+  openDetail(S.detId);
+};
+let textTimer;
+$("#detText").oninput = () => {
+  clearTimeout(textTimer);
+  textTimer = setTimeout(async () => { const r = await DB.get("rides", S.detId); r.text = $("#detText").value; await DB.put("rides", r); $("#textSaved").textContent = "Salvato"; }, 600);
+};
+$("#bRename").onclick = async () => {
+  const r = await DB.get("rides", S.detId);
+  const opts = BIKES.map(b => `<option ${b === r.bike ? "selected" : ""}>${b}</option>`).join("");
+  const a = await modal("Modifica uscita", `<label>Nome</label><input type="text" data-k="name" value="${esc(r.name)}"><label>Bici</label><select data-k="bike">${opts}</select>`,
+    [{ label: "Salva", cls: "pri", value: "ok" }, { label: "Annulla", value: "no" }]);
+  if (a.value !== "ok") return;
+  r.name = (a.vals.name || "").trim() || r.name; r.bike = a.vals.bike; await DB.put("rides", r); openDetail(r.id);
+};
+$("#bDel").onclick = async () => {
+  const a = await modal("Eliminare l'uscita?", "Percorso, foto e note verranno cancellati da questo telefono. L'operazione non si può annullare.", [{ label: "Elimina definitivamente", cls: "danger", value: "y" }, { label: "Annulla", value: "n" }]);
+  if (a.value !== "y") return;
+  await DB.delPhotosOf(S.detId); await DB.del("rides", S.detId); toast("Uscita eliminata"); showView("list");
+};
+$("#detBack").onclick = () => showView("list");
+
+/* ---------- esportazioni ---------- */
+function download(data, name, type) {
+  const b = data instanceof Blob ? data : new Blob([data], { type });
+  const u = URL.createObjectURL(b), a = document.createElement("a"); a.href = u; a.download = name; document.body.appendChild(a); a.click();
+  setTimeout(() => { URL.revokeObjectURL(u); a.remove(); }, 4000);
+}
+const iso = t => new Date(t).toISOString();
+const slug = s => s.normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, "").toLowerCase() || "uscita";
+$("#bGpx").onclick = async () => {
+  const r = await DB.get("rides", S.detId), ps = await DB.photosOf(r.id);
+  const x = s => esc(s);
+  let g = `<?xml version="1.0" encoding="UTF-8"?>\n<gpx version="1.1" creator="Diario in bici" xmlns="http://www.topografix.com/GPX/1/1">\n<metadata><name>${x(r.name)}</name><time>${iso(r.start)}</time></metadata>\n`;
+  (r.notes || []).forEach(n => { if (n.lat != null) g += `<wpt lat="${n.lat.toFixed(7)}" lon="${n.lng.toFixed(7)}"><time>${iso(n.t)}</time><name>${x(n.text.slice(0, 40))}</name><desc>${x(n.text)}</desc><sym>Flag</sym></wpt>\n`; });
+  ps.forEach(p => { if (p.lat != null) g += `<wpt lat="${p.lat.toFixed(7)}" lon="${p.lng.toFixed(7)}"><time>${iso(p.t)}</time><name>${x("Foto" + (p.caption ? ": " + p.caption : ""))}</name><sym>Scenic Area</sym></wpt>\n`; });
+  g += `<trk><name>${x(r.name)}</name><type>cycling</type>`;
+  let seg = null;
+  r.pts.forEach(p => {
+    if (p.seg !== seg) { if (seg !== null) g += "</trkseg>"; g += "\n<trkseg>"; seg = p.seg; }
+    g += `\n<trkpt lat="${p.lat.toFixed(7)}" lon="${p.lng.toFixed(7)}">${p.alt != null ? `<ele>${p.alt.toFixed(1)}</ele>` : ""}<time>${iso(p.t)}</time></trkpt>`;
+  });
+  if (seg !== null) g += "</trkseg>";
+  g += "\n</trk>\n</gpx>\n";
+  download(g, `${new Date(r.start).toISOString().slice(0, 10)}-${slug(r.name)}.gpx`, "application/gpx+xml");
+};
+const blobToData = b => new Promise(res => { const f = new FileReader(); f.onload = () => res(f.result); f.readAsDataURL(b); });
+const dataToBlob = async d => (await fetch(d)).blob();
+$("#bBackup").onclick = async () => {
+  toast("Preparo il backup…");
+  const rides = await DB.all("rides"), photos = await DB.all("photos"), out = [];
+  for (const p of photos) out.push({ ...p, full: await blobToData(p.full), thumb: await blobToData(p.thumb) });
+  download(JSON.stringify({ app: "diario-bici", v: 1, created: Date.now(), rides, photos: out }), `diario-bici-backup-${new Date().toISOString().slice(0, 10)}.json`, "application/json");
+};
+$("#bRestore").onclick = () => $("#bakIn").click();
+$("#bakIn").onchange = async e => {
+  const f = e.target.files[0]; e.target.value = ""; if (!f) return;
+  try {
+    const j = JSON.parse(await f.text()); if (j.app !== "diario-bici") throw 0;
+    let nr = 0;
+    for (const r of j.rides || []) { if (!(await DB.get("rides", r.id))) nr++; await DB.put("rides", r); }
+    for (const p of j.photos || []) await DB.put("photos", { ...p, full: await dataToBlob(p.full), thumb: await dataToBlob(p.thumb) });
+    toast(`Backup importato: ${nr} uscite nuove`); updateStoreInfo();
+  } catch (err) { toast("File di backup non valido"); }
+};
+async function updateStoreInfo() {
+  try {
+    if (!navigator.storage || !navigator.storage.estimate) return;
+    const e = await navigator.storage.estimate(), persisted = navigator.storage.persisted ? await navigator.storage.persisted() : false;
+    $("#storeInfo").innerHTML = `Le uscite e le foto restano salvate solo in questo browser, su questo telefono. Spazio usato: <b>${nf((e.usage || 0) / 1048576, 1)} MB</b>.` +
+      (persisted ? " Archivio protetto dalla pulizia automatica." : " Esporta un backup ogni tanto: il browser può cancellare i dati dei siti poco usati.");
+  } catch (err) {}
+}
+
+/* ---------- navigazione e opzioni ---------- */
+function showView(v) {
+  document.querySelectorAll(".view").forEach(x => x.classList.toggle("on", x.id === "v-" + v));
+  document.querySelectorAll("#tabs button").forEach(b => b.classList.toggle("on", b.dataset.v === v || (v === "det" && b.dataset.v === "list")));
+  if (v === "rec") setTimeout(() => S.map.invalidateSize(), 30);
+  if (v === "list") renderList();
+  if (v === "set") updateStoreInfo();
+}
+document.querySelectorAll("#tabs button").forEach(b => b.onclick = () => showView(b.dataset.v));
+function showBanner(t) { const b = $("#banner"); b.textContent = t; b.classList.add("on"); b.onclick = () => b.classList.remove("on"); }
+
+function bindSettings() {
+  $("#oBike").innerHTML = BIKES.map(b => `<option>${b}</option>`).join("");
+  const map = { oWake: "wake", oVoice: "voice", oVib: "vib", oSim: "sim" };
+  for (const [id, k] of Object.entries(map)) { const el = $("#" + id); el.checked = !!SET[k]; el.onchange = () => { SET[k] = el.checked; saveSet(); if (k === "sim") { if (S.ride) toast("Il cambio vale dalla prossima uscita"); gpsStart(); } if (k === "voice" && el.checked) say("Annunci vocali attivi."); }; }
+  $("#oAcc").value = String(SET.acc); $("#oAcc").onchange = e => { SET.acc = +e.target.value; saveSet(); };
+  $("#oBike").value = SET.bike; $("#oBike").onchange = e => { SET.bike = e.target.value; saveSet(); };
+  $("#oTiles").value = SET.tiles;
+  $("#oTiles").onchange = e => {
+    SET.tiles = e.target.value; saveSet();
+    [S.map, S.dmap].forEach(m => { if (!m) return; m.eachLayer(l => { if (l instanceof L.TileLayer) m.removeLayer(l); }); m._tl = tileLayer(SET.tiles).addTo(m); });
+  };
+}
+
+$("#startBtn").onclick = startRide;
+$("#bPause").onclick = togglePause;
+$("#bStop").onclick = stopRide;
+$("#bNote").onclick = addNote;
+$("#bPhoto").onclick = () => $("#camIn").click();
+$("#btnCenter").onclick = () => { S.follow = true; $("#btnCenter").classList.remove("off"); if (S.fix) S.map.setView([S.fix.lat, S.fix.lng], Math.max(S.map.getZoom(), 16)); };
+
+/* ---------- avvio ---------- */
+(async function init() {
+  if (typeof L === "undefined") { document.body.innerHTML = '<div class="empty">Non riesco a caricare la libreria delle mappe. Controlla la connessione e ricarica la pagina.</div>'; return; }
+  S.map = makeMap($("#recMap")); S.recLayer = L.layerGroup().addTo(S.map);
+  S.map.on("dragstart", () => { S.follow = false; $("#btnCenter").classList.add("off"); });
+  bindSettings();
+  try { await DB.open(); } catch (e) { showBanner("Il browser non permette di salvare dati (forse sei in navigazione privata): le uscite non verranno conservate."); }
+  if (!window.isSecureContext) showBanner("Pagina aperta senza https: il GPS non funzionerà. Per provarla attiva la simulazione in Opzioni.");
+  try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) {}
+  try {
+    const a = await DB.get("kv", "active");
+    if (a) {
+      S.ride = a;
+      if (a.status === "rec") { a.status = "paused"; a.pauseStart = a.savedAt || Date.now(); a.seg++; }
+      await rebuildRecMap();
+      const ll = a.pts.length ? a.pts[a.pts.length - 1] : null; if (ll) S.map.setView([ll.lat, ll.lng], 15);
+      toast("Uscita in corso ripristinata: premi Riprendi", 4000);
+    }
+  } catch (e) {}
+  renderControls(); renderStats();
+  gpsStart();
+})();
+</script>
+</body>
+</html>

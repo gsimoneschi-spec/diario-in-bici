@@ -1,0 +1,16 @@
+{
+  "name": "Diario in bici",
+  "short_name": "In bici",
+  "description": "Registra le uscite in bicicletta: GPS, velocità, km, mappa, foto e note.",
+  "lang": "it",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f4f2ec",
+  "theme_color": "#1f5f3a",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
+  ]
+}
